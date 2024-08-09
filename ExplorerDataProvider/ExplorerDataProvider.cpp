@@ -106,6 +106,29 @@ typedef struct
 	WCHAR szName[MAX_PATH];
 } ITEMDATA;
 
+class CFolderViewImplDropTarget : public IDropTarget
+{
+public:
+	CFolderViewImplDropTarget(CFolderViewImplFolder* pFolderViewImplShellFolder);
+
+	// IUnknown methods
+	IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv);
+	IFACEMETHODIMP_(ULONG) AddRef();
+	IFACEMETHODIMP_(ULONG) Release();
+
+	// IDropTarget
+	IFACEMETHODIMP DragEnter(IDataObject* pDataObj, DWORD grfKeyState, POINTL pt, DWORD* pdwEffect);
+	IFACEMETHODIMP DragOver(DWORD grfKeyState, POINTL pt, DWORD* pdwEffect);
+	IFACEMETHODIMP DragLeave();
+	IFACEMETHODIMP Drop(IDataObject* pDataObj, DWORD grfKeyState, POINTL pt, DWORD* pdwEffect);
+
+private:
+	~CFolderViewImplDropTarget();
+
+	long m_cRef;
+	CFolderViewImplFolder* m_pFolder;
+};
+
 class CFolderViewImplEnumIDList : public IEnumIDList
 {
 public:
@@ -149,7 +172,7 @@ HRESULT CFolderViewImplFolder_CreateInstance(REFIID riid, void** ppv)
 	return hr;
 }
 
-CFolderViewImplFolder::CFolderViewImplFolder(UINT nLevel) : m_cRef(1), m_nLevel(nLevel), m_pidl(NULL)
+CFolderViewImplFolder::CFolderViewImplFolder(UINT nLevel) : m_cRef(1), m_nLevel(nLevel), m_pidl(NULL), m_szModuleName{}
 {
 	DllAddRef();
 	ZeroMemory(m_rgNames, sizeof(m_rgNames));
@@ -476,6 +499,9 @@ HRESULT CFolderViewImplFolder::CompareIDs(LPARAM lParam, PCUIDLIST_RELATIVE pidl
 						int nPidlOne = 0, nPidlTwo = 0;
 						for (int i = 0; i < ARRAYSIZE(m_rgNames); i++)
 						{
+							if (!m_rgNames[i])
+								continue;
+
 							if (0 == StrCmp(psz1, m_rgNames[i]))
 							{
 								nPidlOne = i;
@@ -592,6 +618,16 @@ HRESULT CFolderViewImplFolder::CreateViewObject(HWND hwnd, REFIID riid, void** p
 		DEFCONTEXTMENU dcm = { hwnd, NULL, m_pidl, static_cast<IShellFolder2*>(this), 0, NULL, NULL, 0, NULL };
 		hr = SHCreateDefaultContextMenu(&dcm, riid, ppv);
 	}
+	else if (riid == IID_IDropTarget)
+	{
+		CFolderViewImplDropTarget* pdrop = new (std::nothrow) CFolderViewImplDropTarget(this);
+		hr = pdrop ? S_OK : E_OUTOFMEMORY;
+		if (SUCCEEDED(hr))
+		{
+			hr = pdrop->QueryInterface(riid, ppv);
+			pdrop->Release();
+		}
+	}
 	else if (riid == IID_IExplorerCommandProvider)
 	{
 		CFolderViewCommandProvider* pProvider = new (std::nothrow) CFolderViewCommandProvider();
@@ -630,6 +666,8 @@ HRESULT CFolderViewImplFolder::GetAttributesOf(UINT cidl, PCUITEMID_CHILD_ARRAY 
 				{
 					dwAttribs |= SFGAO_HASSUBFOLDER;
 				}
+
+				dwAttribs |= SFGAO_DROPTARGET;
 				*rgfInOut &= dwAttribs;
 			}
 		}
@@ -677,6 +715,16 @@ HRESULT CFolderViewImplFolder::GetUIObjectOf(HWND hwnd, UINT cidl, PCUITEMID_CHI
 	else if (riid == IID_IDataObject)
 	{
 		hr = SHCreateDataObject(m_pidl, cidl, apidl, NULL, riid, ppv);
+	}
+	else if (riid == IID_IDropTarget)
+	{
+		CFolderViewImplDropTarget* pdrop = new (std::nothrow) CFolderViewImplDropTarget(this);
+		hr = pdrop ? S_OK : E_OUTOFMEMORY;
+		if (SUCCEEDED(hr))
+		{
+			hr = pdrop->QueryInterface(riid, ppv);
+			pdrop->Release();
+		}
 	}
 	else if (riid == IID_IQueryAssociations)
 	{
@@ -1189,11 +1237,75 @@ HRESULT CFolderViewImplFolder::CreateChildID(PCWSTR pszName, int nLevel, int nSi
 	return hr;
 }
 
+CFolderViewImplDropTarget::CFolderViewImplDropTarget(CFolderViewImplFolder* pFolderViewImplShellFolder) :
+	m_cRef(1), m_pFolder(pFolderViewImplShellFolder)
+{
+	m_pFolder->AddRef();
+}
 
+CFolderViewImplDropTarget::~CFolderViewImplDropTarget()
+{
+	m_pFolder->Release();
+}
 
+HRESULT CFolderViewImplDropTarget::QueryInterface(REFIID riid, void** ppv)
+{
+	static const QITAB qit[] = {
+		QITABENT(CFolderViewImplDropTarget, IDropTarget),
+		{ 0 },
+	};
+	return QISearch(this, qit, riid, ppv);
+}
+
+ULONG CFolderViewImplDropTarget::AddRef()
+{
+	return InterlockedIncrement(&m_cRef);
+}
+
+ULONG CFolderViewImplDropTarget::Release()
+{
+	long cRef = InterlockedDecrement(&m_cRef);
+	if (0 == cRef)
+	{
+		delete this;
+	}
+	return cRef;
+}
+
+HRESULT CFolderViewImplDropTarget::DragEnter(IDataObject* pDataObj, DWORD grfKeyState, POINTL pt, DWORD* pdwEffect)
+{
+	if (pdwEffect)
+	{
+		*pdwEffect = DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK;
+	}
+	return S_OK;
+}
+
+HRESULT CFolderViewImplDropTarget::DragOver(DWORD grfKeyState, POINTL pt, DWORD* pdwEffect)
+{
+	if (pdwEffect)
+	{
+		*pdwEffect = DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK;
+	}
+	return S_OK;
+}
+
+HRESULT CFolderViewImplDropTarget::DragLeave()
+{
+	return S_OK;
+}
+
+HRESULT CFolderViewImplDropTarget::Drop(IDataObject* pDataObj, DWORD grfKeyState, POINTL pt, DWORD* pdwEffect)
+{
+	if (pdwEffect)
+	{
+		*pdwEffect = DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK;
+	}
+	return S_OK;
+}
 
 CFolderViewImplEnumIDList::CFolderViewImplEnumIDList(DWORD grfFlags, int nLevel, CFolderViewImplFolder* pFolderViewImplShellFolder) :
-	m_cRef(1), m_grfFlags(grfFlags), m_nLevel(nLevel), m_nItem(0), m_pFolder(pFolderViewImplShellFolder)
+	m_cRef(1), m_grfFlags(grfFlags), m_nLevel(nLevel), m_nItem(0), m_pFolder(pFolderViewImplShellFolder), m_aData{}
 {
 	m_pFolder->AddRef();
 }

@@ -166,7 +166,6 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <TargetMachine>MachineARM64</TargetMachine>
       <ModuleDefinitionFile>ExplorerDataProvider.def</ModuleDefinitionFile>
     </Link>
   </ItemDefinitionGroup>
@@ -209,7 +208,6 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
-      <TargetMachine>MachineARM64</TargetMachine>
       <ModuleDefinitionFile>ExplorerDataProvider.def</ModuleDefinitionFile>
     </Link>
   </ItemDefinitionGroup>
